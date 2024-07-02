@@ -3,6 +3,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from python_orb_slam3 import ORBExtractor
 from mayavi import mlab
+
 fx = 573.1821
 fy = 570.1708
 cx = 274.9323
@@ -57,7 +58,6 @@ class ORBSlamVideo:
 
         kps_curr = [cv2.KeyPoint(x=pt[0][0], y=pt[0][1], size=self.keypoint_size) for pt in pts_curr]
         keypoints_curr, descriptors_curr = self.orb.compute(frame_processed, kps_curr)
-        print(len(kps_curr))
         return keypoints_curr, descriptors_curr
 
     def get_g_matches(self, matches, min_dist_abs):
@@ -97,12 +97,18 @@ class ORBSlamVideo:
         points4D /= points4D[3]  # 归一化
         points3D = points4D.T[:, 0:3]  # 取坐标点
         return points3D
+    def pixel2cam(self,pt):
+        x = (pt[0] - cx) / fx
+        y = (pt[1] - cy) / fy
+        return np.array([x, y, 1])
 
     def read_video(self, filename):
         cap = cv2.VideoCapture(filename)
         i = 0
-
+        import pickle
         # mlab.figure(size=(800, 600), bgcolor=(0, 0, 0))
+        mean_ds=[]
+        frame_datas = []
         while (cap.isOpened()):
             ret, frame = cap.read()
             # self.orb = cv2.ORB.create()
@@ -113,15 +119,13 @@ class ORBSlamVideo:
             self.orb = cv2.ORB.create()
             frame_processed = self.preprocess_image(frame)
             keypoints_curr, descriptors_curr = self.get_key_points(frame_processed)
-            print(len(keypoints_curr))
             if i == 0:
                 frame_prev = frame
 
                 keypoints_prev, descriptors_prev = keypoints_curr, descriptors_curr
                 i += 1
                 continue
-            cv2.imwrite('p1.png', frame_prev)
-            cv2.imwrite('p2.png', frame)
+
             # if i%2:
             #     i+=1
             #     continue
@@ -134,6 +138,30 @@ class ORBSlamVideo:
             em, mask = cv2.findEssentialMat(points_prev, points_curr, self.camera_matrix, cv2.RANSAC)
             num, R, t, mask = cv2.recoverPose(em, points_prev, points_curr, self.camera_matrix)
             points3d_local = self.get_3dpts(R, t, points_prev, points_curr)
+
+            # 定义 t_x 矩阵
+            t_x = np.array([[0, -t[2, 0], t[1, 0]],
+                            [t[2, 0], 0, -t[0, 0]],
+                            [-t[1, 0], t[0, 0], 0]])
+
+            total_d = 0
+            num = 0
+            for i in matches:
+                # 计算 y1
+                pt1 = self.pixel2cam(keypoints_prev[i.queryIdx].pt)
+                y1 = np.array([[pt1[0]], [pt1[1]], [1]])
+
+                # 计算 y2
+                pt2 = self.pixel2cam(keypoints_curr[i.trainIdx].pt)
+                y2 = np.array([[pt2[0]], [pt2[1]], [1]])
+
+                # 计算 d
+                d = np.dot(np.dot(np.dot(y2.T, t_x), R), y1)
+                total_d = total_d + d
+                num = num + 1
+            mean_d = total_d / num
+            mean_ds.append(mean_d[0, 0])
+
 
             for i in range(points_curr.shape[0]):
                 # 第一幅图
@@ -149,9 +177,15 @@ class ORBSlamVideo:
             frame_prev = frame
             keypoints_prev, descriptors_prev = keypoints_curr, descriptors_curr
             i += 1
+            frame_datas.append([R, t, points3d_local])
+        mean_ds=np.array(mean_ds)
+        pickle.dump(frame_datas, open('rtp_data.pkl', 'wb'))
 
+        # np.savetxt("reprojection error.csv",mean_ds,delimiter=',')
         cap.release()
         cv2.destroyAllWindows()
+
+
 
 
 if __name__ == '__main__':
