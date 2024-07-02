@@ -211,21 +211,27 @@ tR = np.dot(t_x, R)
 
 print("t^R =", tR)
 print('points2 %d' % len(points2))
+
 ds = []
+total_d = 0
+num = 0
 for m in matches:
     # 计算 y1
     pt1 = pixel2cam(keypoints1[m.queryIdx].pt)
     y1 = np.array([[pt1[0]], [pt1[1]], [1]])
 
     # 计算 y2
-    pt2 = pixel2cam(keypoints1[m.queryIdx].pt)
+    pt2 = pixel2cam(keypoints2[m.trainIdx].pt)
     y2 = np.array([[pt2[0]], [pt2[1]], [1]])
 
     # 计算 d
     d = np.dot(np.dot(np.dot(y2.T, t_x), R), y1)
     ds.append(d[0, 0])
-
+    total_d = total_d + d
+    num = num + 1
     print("epipolar constraint =", d)
+mean_d = total_d/num
+print("mean_d =", mean_d)
 plt.hist(ds, bins=50)
 plt.show()
 
